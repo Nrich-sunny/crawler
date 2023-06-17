@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -33,7 +34,13 @@ func main() {
 	numLinks := strings.Count(string(body), "<a")
 	fmt.Printf("homepage has %d links!\n", numLinks)
 
+	numLinks = bytes.Count(body, []byte("<a"))
+	fmt.Printf("homepage has %d links!\n", numLinks)
+
 	exits := strings.Contains(string(body), "美国")
+	fmt.Printf("是否存在美国相关新闻：%v\n", exits)
+
+	exits = bytes.Contains(body, []byte("美国"))
 	fmt.Printf("是否存在美国相关新闻：%v\n", exits)
 
 }
