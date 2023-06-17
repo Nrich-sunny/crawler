@@ -3,6 +3,8 @@ module github.com/Nrich-sunny/crawler
 go 1.16
 
 require (
-	golang.org/x/net v0.11.0 // indirect
-	golang.org/x/text v0.10.0 // indirect
+	github.com/PuerkitoBio/goquery v1.8.1 // indirect
+	github.com/antchfx/htmlquery v1.3.0 // indirect
+	golang.org/x/net v0.11.0
+	golang.org/x/text v0.10.0
 )
