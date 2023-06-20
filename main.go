@@ -1,32 +1,33 @@
 package main
 
 import (
-	"fmt"
-	"github.com/Nrich-sunny/crawler/collect"
+	"github.com/chromedp/chromedp"
+	"golang.org/x/net/context"
+	"log"
+	"time"
 )
 
 func main() {
-	url := "https://book.douban.com/subject/1007305/"
+	// 1. 创建谷歌浏览器实例
+	ctx, cancel := chromedp.NewContext(
+		context.Background(),
+	)
+	defer cancel()
 
-	var fetcher collect.Fetcher = collect.BrowserFetch{}
-	body, err := fetcher.Get(url)
+	// 2. 设置 context 超时时间
+	ctx, cancel = context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 
+	// 3. 爬取页面，等待某一个元素出现,接着模拟鼠标点击，最后获取数据
+	var example string
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(`https://pkg.go.dev/time`),
+		chromedp.WaitVisible(`body > footer`), // 代表正文已经加载完毕
+		chromedp.Click(`#example-After`, chromedp.NodeVisible),
+		chromedp.Value(`#example-After textarea`, &example),
+	)
 	if err != nil {
-		fmt.Printf("read content failed:%v\n", err)
-		return
+		log.Fatal(err)
 	}
-
-	fmt.Println(string(body))
-
-	//// 加载 HTML 文档
-	//doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
-	//if err != nil {
-	//	fmt.Printf("read content failed:%v\n", err)
-	//}
-	//
-	//doc.Find("div.index_linecard__wJq_3 a[target=_blank] h2").Each(func(i int, s *goquery.Selection) {
-	//	//  获取匹配标签中的文本
-	//	title := s.Text()
-	//	fmt.Printf("Review %d: %s\n", i, title)
-	//})
+	log.Printf("Go's time.After example:\\n%s", example)
 }
