@@ -9,6 +9,7 @@ import (
 	"golang.org/x/text/transform"
 	"io"
 	"net/http"
+	"time"
 )
 
 type Fetcher interface {
@@ -40,10 +41,13 @@ func (BaseFetch) Get(url string) ([]byte, error) {
 
 // 模拟浏览器访问
 type BrowserFetch struct {
+	Timeout time.Duration
 }
 
-func (BrowserFetch) Get(url string) ([]byte, error) {
-	client := &http.Client{}
+func (b BrowserFetch) Get(url string) ([]byte, error) {
+	client := &http.Client{
+		Timeout: b.Timeout,
+	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
