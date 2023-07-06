@@ -3,12 +3,15 @@ package main
 import (
 	"fmt"
 	"github.com/Nrich-sunny/crawler/collect"
+	"time"
 )
 
 func main() {
 	url := "https://book.douban.com/subject/1007305/"
 
-	var fetcher collect.Fetcher = collect.BrowserFetch{}
+	var fetcher collect.Fetcher = collect.BrowserFetch{
+		Timeout: 3000 * time.Millisecond,
+	}
 	body, err := fetcher.Get(url)
 
 	if err != nil {
