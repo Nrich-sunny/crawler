@@ -7,6 +7,8 @@ import (
 )
 
 func main() {
+	proxyURLs := []string{}
+
 	url := "https://book.douban.com/subject/1007305/"
 
 	var fetcher collect.Fetcher = collect.BrowserFetch{
