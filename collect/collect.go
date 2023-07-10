@@ -43,7 +43,7 @@ func (BaseFetch) Get(url string) ([]byte, error) {
 // 模拟浏览器访问
 type BrowserFetch struct {
 	Timeout time.Duration
-	Proxy   proxy.ProxyFunc
+	Proxy   proxy.ProxyFunc // 是 Transport 结构体中的函数
 }
 
 func (b BrowserFetch) Get(url string) ([]byte, error) {
@@ -53,7 +53,7 @@ func (b BrowserFetch) Get(url string) ([]byte, error) {
 
 	if b.Proxy != nil {
 		transport := http.DefaultTransport.(*http.Transport)
-		transport.Proxy = b.Proxy
+		transport.Proxy = b.Proxy // 将其替换为自定义的代理函数
 		client.Transport = transport
 	}
 
