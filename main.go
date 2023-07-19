@@ -32,6 +32,8 @@ func main() {
 			ParseFunc: doubangroup.ParseURL,
 		})
 	}
+	logger.Info(seeds[0].Url)
+	logger.Info(seeds[1].Url)
 
 	var fetcher collect.Fetcher = &collect.BrowserFetch{
 		Timeout: 3000 * time.Millisecond,
@@ -48,6 +50,7 @@ func main() {
 				logger.Error("read content failed.", zap.Error(err))
 				continue
 			}
+			logger.Info("body = " + string(body))
 			res := item.ParseFunc(body)
 			for _, item := range res.Items {
 				logger.Info("result", zap.String("get url:", item.(string)))

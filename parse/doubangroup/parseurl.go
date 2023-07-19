@@ -2,16 +2,20 @@ package doubangroup
 
 import (
 	"github.com/Nrich-sunny/crawler/collect"
+	"log"
 	"regexp"
 )
 
-const urlListRe = `(<https://www.douban.com/group/topic/[0-9a-z]+/>)"[^>]*>([^<]+)</a>`
+const urlListRe = `(https://www.douban.com/group/topic/[0-9a-z]+/)(\?_i=[0-9a-zA-Z]+)`
+
+//var a = `(<https://www.douban.com/group/topic/[0-9a-z]+/>)"[^>]*>([^<]+)</a>`
 
 func ParseURL(content []byte) collect.ParseResult {
 	re := regexp.MustCompile(urlListRe)
 
 	matches := re.FindAllSubmatch(content, -1) // 首页中所有符合规则的链接
-	result := collect.ParseResult{}            // 记录解析所得的结果
+	log.Println(matches)
+	result := collect.ParseResult{} // 记录解析所得的结果
 
 	for _, m := range matches {
 		u := string(m[1])
