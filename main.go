@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 	"github.com/Nrich-sunny/crawler/collect"
+	"github.com/Nrich-sunny/crawler/engine"
 	"github.com/Nrich-sunny/crawler/log"
 	"github.com/Nrich-sunny/crawler/parse/doubangroup"
-	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"time"
 )
@@ -39,25 +39,15 @@ func main() {
 	var fetcher collect.Fetcher = &collect.BrowserFetch{
 		Timeout: 3000 * time.Millisecond,
 		//Proxy: p,
+		Logger: logger,
 	}
 
-	for len(seeds) > 0 {
-		items := seeds
-		seeds = nil
-		for _, item := range items {
-			body, err := fetcher.Get(item)
-			time.Sleep(3 * time.Second) // 休眠 3 秒钟尽量减缓服务器的压力
-			if err != nil {
-				logger.Error("read content failed.", zap.Error(err))
-				continue
-			}
-			//logger.Info("body = " + string(body))
-			res := item.ParseFunc(body)
-			for _, item := range res.Items {
-				logger.Info("result", zap.String("get url:", item.(string)))
-			}
-			seeds = append(seeds, res.Requesrts...)
-		}
+	s := engine.ScheduleEngine{
+		WorkCount: 5,
+		Logger:    logger,
+		Fetcher:   fetcher,
+		Seeds:     seeds,
 	}
 
+	s.Run()
 }
