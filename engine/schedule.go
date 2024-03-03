@@ -67,7 +67,7 @@ func (s *ScheduleEngine) HandleResult() {
 	for {
 		select {
 		case result := <-s.out:
-			for _, req := range result.Requesrts {
+			for _, req := range result.Requests {
 				s.requestCh <- req // 进一步要爬取的Requests列表
 			}
 			for _, item := range result.Items {

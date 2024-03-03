@@ -7,6 +7,6 @@ type Request struct {
 }
 
 type ParseResult struct {
-	Requesrts []*Request    // 用于进一步获取数据。进一步要爬取的 Requests 列表
-	Items     []interface{} // 获取到的数据(类型：任意元素类型的切片)
+	Requests []*Request    // 用于进一步获取数据。进一步要爬取的 Requests 列表
+	Items    []interface{} // 获取到的数据(类型：任意元素类型的切片)
 }

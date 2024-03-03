@@ -22,8 +22,8 @@ func ParseURL(content []byte) collect.ParseResult {
 
 	for _, m := range matches {
 		u := string(m[1])
-		result.Requesrts = append(
-			result.Requesrts, &collect.Request{
+		result.Requests = append(
+			result.Requests, &collect.Request{
 				Url: u,
 				ParseFunc: func(c []byte) collect.ParseResult {
 					return GetContent(c, u)
