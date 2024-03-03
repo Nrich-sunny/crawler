@@ -8,11 +8,25 @@ import (
 type ScheduleEngine struct {
 	requestCh chan *collect.Request
 	workerCh  chan *collect.Request
+	out       chan collect.ParseResult
+	options
+}
+
+type Config struct {
 	WorkCount int
 	Fetcher   collect.Fetcher
 	Logger    *zap.Logger
-	out       chan collect.ParseResult
 	Seeds     []*collect.Request
+}
+
+func NewSchedule(opts ...Option) *ScheduleEngine {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+	s := &ScheduleEngine{}
+	s.options = options
+	return s
 }
 
 func (s *ScheduleEngine) Run() {
@@ -29,7 +43,13 @@ func (s *ScheduleEngine) Run() {
 	s.HandleResult()
 }
 
-func (s *ScheduleEngine) Schedule() { //  调度的核心逻辑
+// Schedule
+/**
+ * 调度的核心逻辑
+ * 监听 requestCh，新的请求塞进 reqQueue 中;
+ * 遍历 reqQueue 中 Request，塞进 workerCh 中。
+ */
+func (s *ScheduleEngine) Schedule() {
 	reqQueue := s.Seeds
 	go func() {
 		for {
