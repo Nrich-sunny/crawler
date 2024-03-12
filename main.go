@@ -46,12 +46,13 @@ func main() {
 		Logger: logger,
 	}
 
-	s := engine.NewSchedule(
+	crawler := engine.NewEngine(
 		engine.WithFetcher(fetcher),
 		engine.WithLogger(logger),
 		engine.WithWorkCount(5),
 		engine.WithSeeds(seeds),
+		engine.WithScheduler(engine.NewSchedule()),
 	)
 
-	s.Run()
+	crawler.Run()
 }
