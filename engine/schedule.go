@@ -12,13 +12,6 @@ type ScheduleEngine struct {
 	options
 }
 
-type Config struct {
-	WorkCount int
-	Fetcher   collect.Fetcher
-	Logger    *zap.Logger
-	Seeds     []*collect.Request
-}
-
 func NewSchedule(opts ...Option) *ScheduleEngine {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -50,7 +43,13 @@ func (s *ScheduleEngine) Run() {
  * 遍历 reqQueue 中 Request，塞进 workerCh 中。
  */
 func (s *ScheduleEngine) Schedule() {
-	reqQueue := s.Seeds
+	var reqQueue []*collect.Request
+	for _, seed := range s.Seeds {
+		seed.RootReq.Task = seed
+		seed.RootReq.Url = seed.Url
+		reqQueue = append(reqQueue, seed.RootReq)
+	}
+
 	go func() {
 		for {
 			var req *collect.Request

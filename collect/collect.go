@@ -36,7 +36,7 @@ func (BaseFetch) Get(req *Request) ([]byte, error) {
 	}
 
 	bodyReader := bufio.NewReader(resp.Body)
-	e := DeterminEncoding(bodyReader)
+	e := DetermineEncoding(bodyReader)
 	utf8Reader := transform.NewReader(bodyReader, e.NewDecoder())
 	return io.ReadAll(utf8Reader)
 }
@@ -64,24 +64,25 @@ func (b BrowserFetch) Get(request *Request) ([]byte, error) {
 		return nil, fmt.Errorf("get url failed:%v", err)
 	}
 
-	if len(request.Cookie) > 0 {
-		req.Header.Set("Cookie", request.Cookie)
+	if len(request.Task.Cookie) > 0 {
+		req.Header.Set("Cookie", request.Task.Cookie)
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/105.0.0.0 Safari/537.36")
 
 	resp, err := client.Do(req)
+	time.Sleep(request.Task.WaitTime)
 	if err != nil {
 		b.Logger.Error("fetch failed", zap.Error(err))
 		return nil, err
 	}
 
 	bodyReader := bufio.NewReader(resp.Body)
-	e := DeterminEncoding(bodyReader)
+	e := DetermineEncoding(bodyReader)
 	utf8Reader := transform.NewReader(bodyReader, e.NewDecoder())
 	return io.ReadAll(utf8Reader)
 }
 
-func DeterminEncoding(r *bufio.Reader) encoding.Encoding {
+func DetermineEncoding(r *bufio.Reader) encoding.Encoding {
 
 	bytes, err := r.Peek(1024)
 
