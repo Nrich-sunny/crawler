@@ -12,7 +12,7 @@ const urlListRe = `(https://www.douban.com/group/topic/[0-9a-z]+/)"[^>]*>([^<]+)
 // origin_useful = `(https://www.douban.com/group/topic/[0-9a-z]+/)"[^>]*>([^<]+)</a>`
 // my = `(https://www.douban.com/group/topic/[0-9a-z]+/)(\?_i=[0-9a-zA-Z]+)` // unuseful
 
-func ParseURL(content []byte) collect.ParseResult {
+func ParseURL(content []byte, req *collect.Request) collect.ParseResult {
 	re := regexp.MustCompile(urlListRe)
 
 	matches := re.FindAllSubmatch(content, -1) // 首页中所有符合规则的链接
@@ -24,8 +24,10 @@ func ParseURL(content []byte) collect.ParseResult {
 		u := string(m[1])
 		result.Requests = append(
 			result.Requests, &collect.Request{
-				Url: u,
-				ParseFunc: func(c []byte) collect.ParseResult {
+				Url:      u,
+				Depth:    req.Depth + 1,
+				MaxDepth: req.MaxDepth,
+				ParseFunc: func(c []byte, request *collect.Request) collect.ParseResult {
 					return GetContent(c, u)
 				},
 			},

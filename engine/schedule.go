@@ -73,12 +73,16 @@ func (s *ScheduleEngine) Schedule() {
 func (s *ScheduleEngine) CreateWork() {
 	for {
 		r := <-s.workerCh
+		if err := r.Check(); err != nil {
+			s.Logger.Error("check failed")
+			continue
+		}
 		body, err := s.Fetcher.Get(r)
 		if err != nil {
 			s.Logger.Error("can't fetch ", zap.Error(err))
 			continue
 		}
-		result := r.ParseFunc(body)
+		result := r.ParseFunc(body, r)
 		s.out <- result
 	}
 }
@@ -91,7 +95,7 @@ func (s *ScheduleEngine) HandleResult() {
 				s.requestCh <- req // 进一步要爬取的Requests列表
 			}
 			for _, item := range result.Items {
-				s.Logger.Sugar().Info("get result", item)
+				s.Logger.Sugar().Info("get result: ", item)
 			}
 		}
 	}
