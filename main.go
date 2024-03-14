@@ -34,6 +34,7 @@ func main() {
 			MaxDepth: 5,
 			RootReq: &collect.Request{
 				Method:    "GET",
+				Priority:  1,
 				ParseFunc: doubangroup.ParseURL,
 			},
 		})

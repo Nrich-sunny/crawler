@@ -20,10 +20,11 @@ type Scheduler interface {
 }
 
 type ScheduleEngine struct {
-	RequestCh chan *collect.Request
-	WorkerCh  chan *collect.Request
-	ReqQueue  []*collect.Request
-	Logger    *zap.Logger
+	RequestCh   chan *collect.Request
+	WorkerCh    chan *collect.Request
+	PriReqQueue []*collect.Request
+	ReqQueue    []*collect.Request
+	Logger      *zap.Logger
 }
 
 func NewEngine(opts ...Option) *Crawler {
@@ -54,19 +55,32 @@ func NewSchedule() *ScheduleEngine {
  * 遍历 ReqQueue 中 Request，塞进 WorkerCh 中。
  */
 func (s *ScheduleEngine) Schedule() {
+	var req *collect.Request
+	var ch chan *collect.Request
 	for {
-		var req *collect.Request
-		var ch chan *collect.Request
+		// 更高优先级的队列
+		if req == nil && len(s.PriReqQueue) > 0 {
+			req = s.PriReqQueue[0]
+			s.PriReqQueue = s.PriReqQueue[1:]
+			ch = s.WorkerCh
+		}
 
-		if len(s.ReqQueue) > 0 {
+		// 更低优先级的队列
+		if req == nil && len(s.ReqQueue) > 0 {
 			req = s.ReqQueue[0]
 			s.ReqQueue = s.ReqQueue[1:]
 			ch = s.WorkerCh
 		}
 		select {
 		case r := <-s.RequestCh:
-			s.ReqQueue = append(s.ReqQueue, r)
+			if r.Priority > 0 {
+				s.PriReqQueue = append(s.PriReqQueue, r)
+			} else {
+				s.ReqQueue = append(s.ReqQueue, r)
+			}
 		case ch <- req:
+			req = nil
+			ch = nil
 		}
 	}
 }

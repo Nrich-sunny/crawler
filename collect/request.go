@@ -23,6 +23,7 @@ type Request struct {
 	Url       string // 这里存的是单个请求对应的 url
 	Method    string
 	Depth     int                                // 该请求对应的深度
+	Priority  int                                // 请求的优先级, 值越大优先级越高（目前只有两个优先级：0 和 大于0）
 	ParseFunc func([]byte, *Request) ParseResult // 解析从网站获取到的网站信息的函数
 }
 
