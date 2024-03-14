@@ -3,10 +3,13 @@ package engine
 import (
 	"github.com/Nrich-sunny/crawler/collect"
 	"go.uber.org/zap"
+	"sync"
 )
 
 type Crawler struct {
-	out chan collect.ParseResult // 负责处理爬取后的数据
+	out         chan collect.ParseResult // 负责处理爬取后的数据
+	visited     map[string]bool
+	visitedLock sync.Mutex
 	options
 }
 
@@ -29,8 +32,8 @@ func NewEngine(opts ...Option) *Crawler {
 		opt(&options)
 	}
 	crawler := &Crawler{}
-	out := make(chan collect.ParseResult)
-	crawler.out = out
+	crawler.visited = make(map[string]bool, 100)
+	crawler.out = make(chan collect.ParseResult)
 	crawler.options = options
 	return crawler
 }
@@ -106,10 +109,19 @@ func (crawler *Crawler) Schedule() {
 func (crawler *Crawler) CreateWork() {
 	for {
 		r := crawler.Scheduler.Pull()
-		if err := r.Check(); err != nil { // 检查当前 request 是否已经达到最大深度限制
+		// 检查当前 request 是否已经达到最大深度限制
+		if err := r.Check(); err != nil {
 			crawler.Logger.Error("check failed")
 			continue
 		}
+		// 判断当前是否已经访问
+		if crawler.HasVisited(r) {
+			crawler.Logger.Debug("request has visited", zap.String("url:", r.Url))
+			continue
+		}
+		// 设置当前请求已被访问
+		crawler.StoreVisited(r)
+
 		body, err := crawler.Fetcher.Get(r)
 		if err != nil {
 			crawler.Logger.Error("can't fetch ", zap.Error(err))
@@ -136,5 +148,22 @@ func (crawler *Crawler) HandleResult() {
 				crawler.Logger.Sugar().Info("get result: ", item)
 			}
 		}
+	}
+}
+
+func (crawler *Crawler) HasVisited(r *collect.Request) bool {
+	crawler.visitedLock.Lock()
+	defer crawler.visitedLock.Unlock()
+	unique := r.Unique()
+	return crawler.visited[unique]
+}
+
+func (crawler *Crawler) StoreVisited(reqs ...*collect.Request) {
+	crawler.visitedLock.Lock()
+	defer crawler.visitedLock.Unlock()
+
+	for _, r := range reqs {
+		unique := r.Unique()
+		crawler.visited[unique] = true
 	}
 }

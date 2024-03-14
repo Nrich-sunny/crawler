@@ -1,6 +1,8 @@
 package collect
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"errors"
 	"time"
 )
@@ -17,7 +19,9 @@ type Task struct {
 // Request 单个请求
 type Request struct {
 	Task      *Task
-	Url       string                             // 这里存的是单个请求对应的 url
+	UniqueStr string
+	Url       string // 这里存的是单个请求对应的 url
+	Method    string
 	Depth     int                                // 该请求对应的深度
 	ParseFunc func([]byte, *Request) ParseResult // 解析从网站获取到的网站信息的函数
 }
@@ -32,4 +36,10 @@ func (r *Request) Check() error {
 		return errors.New("max depth limit reached")
 	}
 	return nil
+}
+
+// 请求的唯一标识码
+func (r *Request) Unique() string {
+	block := md5.Sum([]byte(r.Url + r.Method))
+	return hex.EncodeToString(block[:])
 }
