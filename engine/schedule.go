@@ -7,10 +7,10 @@ import (
 )
 
 type Crawler struct {
-	OutCh       chan collect.ParseResult // 负责处理爬取后的数据
+	outCh       chan collect.ParseResult // 负责处理爬取后的数据
 	Visited     map[string]bool
 	VisitedLock sync.Mutex
-	Options
+	options
 }
 
 type Scheduler interface {
@@ -20,10 +20,10 @@ type Scheduler interface {
 }
 
 type ScheduleEngine struct {
-	RequestCh   chan *collect.Request
-	WorkerCh    chan *collect.Request
-	PriReqQueue []*collect.Request
-	ReqQueue    []*collect.Request
+	requestCh   chan *collect.Request
+	workerCh    chan *collect.Request
+	priReqQueue []*collect.Request
+	reqQueue    []*collect.Request
 	Logger      *zap.Logger
 }
 
@@ -34,8 +34,8 @@ func NewEngine(opts ...Option) *Crawler {
 	}
 	crawler := &Crawler{}
 	crawler.Visited = make(map[string]bool, 100)
-	crawler.OutCh = make(chan collect.ParseResult)
-	crawler.Options = options
+	crawler.outCh = make(chan collect.ParseResult)
+	crawler.options = options
 	return crawler
 }
 
@@ -43,40 +43,40 @@ func NewSchedule() *ScheduleEngine {
 	s := &ScheduleEngine{}
 	requestCh := make(chan *collect.Request) // 负责接收请求
 	workCh := make(chan *collect.Request)    // 负责分配任务
-	s.RequestCh = requestCh
-	s.WorkerCh = workCh
+	s.requestCh = requestCh
+	s.workerCh = workCh
 	return s
 }
 
 // Schedule
 /**
  * 调度的核心逻辑
- * 监听 RequestCh，新的请求塞进 ReqQueue 中;
- * 遍历 ReqQueue 中 Request，塞进 WorkerCh 中。
+ * 监听 requestCh，新的请求塞进 reqQueue 中;
+ * 遍历 reqQueue 中 Request，塞进 workerCh 中。
  */
 func (s *ScheduleEngine) Schedule() {
 	var req *collect.Request
 	var ch chan *collect.Request
 	for {
 		// 更高优先级的队列
-		if req == nil && len(s.PriReqQueue) > 0 {
-			req = s.PriReqQueue[0]
-			s.PriReqQueue = s.PriReqQueue[1:]
-			ch = s.WorkerCh
+		if req == nil && len(s.priReqQueue) > 0 {
+			req = s.priReqQueue[0]
+			s.priReqQueue = s.priReqQueue[1:]
+			ch = s.workerCh
 		}
 
 		// 更低优先级的队列
-		if req == nil && len(s.ReqQueue) > 0 {
-			req = s.ReqQueue[0]
-			s.ReqQueue = s.ReqQueue[1:]
-			ch = s.WorkerCh
+		if req == nil && len(s.reqQueue) > 0 {
+			req = s.reqQueue[0]
+			s.reqQueue = s.reqQueue[1:]
+			ch = s.workerCh
 		}
 		select {
-		case r := <-s.RequestCh:
+		case r := <-s.requestCh:
 			if r.Priority > 0 {
-				s.PriReqQueue = append(s.PriReqQueue, r)
+				s.priReqQueue = append(s.priReqQueue, r)
 			} else {
-				s.ReqQueue = append(s.ReqQueue, r)
+				s.reqQueue = append(s.reqQueue, r)
 			}
 		case ch <- req:
 			req = nil
@@ -87,17 +87,17 @@ func (s *ScheduleEngine) Schedule() {
 
 func (s *ScheduleEngine) Push(reqs ...*collect.Request) {
 	for _, req := range reqs {
-		s.RequestCh <- req
+		s.requestCh <- req
 	}
 }
 
 func (s *ScheduleEngine) Pull() *collect.Request {
-	r := <-s.WorkerCh
+	r := <-s.workerCh
 	return r
 }
 
 //func (s *ScheduleEngine) Output() *collect.Request {
-//	r := <-s.WorkerCh
+//	r := <-s.workerCh
 //	return r
 //}
 
@@ -147,16 +147,16 @@ func (crawler *Crawler) CreateWork() {
 		if len(result.Requests) > 0 {
 			go crawler.Scheduler.Push(result.Requests...)
 		}
-		crawler.OutCh <- result
+		crawler.outCh <- result
 	}
 }
 
 func (crawler *Crawler) HandleResult() {
 	for {
 		select {
-		case result := <-crawler.OutCh:
+		case result := <-crawler.outCh:
 			//for _, req := range result.Requests {
-			//	crawler.RequestCh <- req // 进一步要爬取的Requests列表
+			//	crawler.requestCh <- req // 进一步要爬取的Requests列表
 			//}
 			for _, item := range result.Items {
 				crawler.Logger.Sugar().Info("get result: ", item)
