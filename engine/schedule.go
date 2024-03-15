@@ -2,9 +2,30 @@ package engine
 
 import (
 	"github.com/Nrich-sunny/crawler/collect"
+	"github.com/Nrich-sunny/crawler/parse/doubangroup"
 	"go.uber.org/zap"
 	"sync"
 )
+
+// Store 全局爬虫种类实例
+var Store = &CrawlerStore{
+	list: []*collect.Task{},          // 全局任务队列
+	hash: map[string]*collect.Task{}, // 全局任务哈希表
+}
+
+func init() {
+	Store.Add(doubangroup.DoubangroupTask)
+}
+
+type CrawlerStore struct {
+	list []*collect.Task          // 任务队列
+	hash map[string]*collect.Task // 任务哈希表， 任务名 -> 任务
+}
+
+func (c *CrawlerStore) Add(task *collect.Task) {
+	c.hash[task.Name] = task
+	c.list = append(c.list, task)
+}
 
 type Crawler struct {
 	outCh       chan collect.ParseResult // 负责处理爬取后的数据
@@ -117,9 +138,13 @@ func (crawler *Crawler) Run() {
 func (crawler *Crawler) Schedule() {
 	var reqs []*collect.Request
 	for _, seed := range crawler.Seeds {
-		seed.RootReq.Task = seed
-		seed.RootReq.Url = seed.Url
-		reqs = append(reqs, seed.RootReq)
+		task, ok := Store.hash[seed.Name]
+		if !ok {
+			crawler.Logger.Debug("task not found", zap.String("task name", seed.Name))
+		}
+		// 获取初始化任务
+		rootReqs := task.Rule.Root()
+		reqs = append(reqs, rootReqs...)
 	}
 	go crawler.Scheduler.Schedule()
 	go crawler.Scheduler.Push(reqs...)
@@ -148,7 +173,15 @@ func (crawler *Crawler) CreateWork() {
 			continue
 		}
 
-		result := r.ParseFunc(body, r)
+		rule, ok := r.Task.Rule.Trunk[r.RuleName]
+		if !ok {
+			crawler.Logger.Error("rule not found", zap.String("rule name", r.RuleName))
+			continue
+		}
+		result := rule.ParseFunc(&collect.Context{
+			Body: body,
+			Req:  r,
+		})
 		// FIXME: 为啥要在创建请求任务的时候处理结果呢。。
 		if len(result.Requests) > 0 {
 			go crawler.Scheduler.Push(result.Requests...)

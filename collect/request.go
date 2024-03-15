@@ -9,11 +9,17 @@ import (
 
 // Task 整个任务实例，所有请求共享的参数
 type Task struct {
+	Name     string // 用户界面显示的名称（应保证唯一性）
 	Url      string // 这里存的是一个 seed 对应的 url
 	Cookie   string
 	WaitTime time.Duration
 	MaxDepth int      // 任务的最大深度
-	RootReq  *Request // 任务中的第一个请求
+	Rule     RuleTree // 任务中的规则
+}
+
+type Context struct {
+	Body []byte
+	Req  *Request
 }
 
 // Request 单个请求
@@ -23,9 +29,9 @@ type Request struct {
 	Reload    bool   // 网站是否可以重复请求
 	Url       string // 这里存的是单个请求对应的 url
 	Method    string
-	Depth     int                                // 该请求对应的深度
-	Priority  int                                // 请求的优先级, 值越大优先级越高（目前只有两个优先级：0 和 大于0）
-	ParseFunc func([]byte, *Request) ParseResult // 解析从网站获取到的网站信息的函数
+	Depth     int    // 该请求对应的深度
+	Priority  int    // 请求的优先级, 值越大优先级越高（目前只有两个优先级：0 和 大于0）
+	RuleName  string // 该请求对应的规则名
 }
 
 type ParseResult struct {
