@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// 整个任务示例，所有请求共享的参数
+// Task 整个任务实例，所有请求共享的参数
 type Task struct {
 	Url      string // 这里存的是一个 seed 对应的 url
 	Cookie   string
@@ -20,6 +20,7 @@ type Task struct {
 type Request struct {
 	Task      *Task
 	UniqueStr string
+	Reload    bool   // 网站是否可以重复请求
 	Url       string // 这里存的是单个请求对应的 url
 	Method    string
 	Depth     int                                // 该请求对应的深度

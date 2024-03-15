@@ -35,6 +35,7 @@ func main() {
 			RootReq: &collect.Request{
 				Method:    "GET",
 				Priority:  1,
+				Reload:    true,
 				ParseFunc: doubangroup.ParseURL,
 			},
 		})

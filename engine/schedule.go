@@ -10,6 +10,10 @@ type Crawler struct {
 	outCh       chan collect.ParseResult // 负责处理爬取后的数据
 	Visited     map[string]bool
 	VisitedLock sync.Mutex
+
+	failures     map[string]*collect.Request // 失败请求id -> 失败请求
+	failuresLock sync.Mutex
+
 	options
 }
 
@@ -35,6 +39,7 @@ func NewEngine(opts ...Option) *Crawler {
 	crawler := &Crawler{}
 	crawler.Visited = make(map[string]bool, 100)
 	crawler.outCh = make(chan collect.ParseResult)
+	crawler.failures = make(map[string]*collect.Request)
 	crawler.options = options
 	return crawler
 }
@@ -139,6 +144,7 @@ func (crawler *Crawler) CreateWork() {
 		body, err := crawler.Fetcher.Get(r)
 		if err != nil {
 			crawler.Logger.Error("can't fetch ", zap.Error(err))
+			crawler.SetFailure(r)
 			continue
 		}
 
@@ -180,4 +186,20 @@ func (crawler *Crawler) StoreVisited(reqs ...*collect.Request) {
 		unique := r.Unique()
 		crawler.Visited[unique] = true
 	}
+}
+
+func (crawler *Crawler) SetFailure(r *collect.Request) {
+	if r.Reload && crawler.HasVisited(r) {
+		// 首次失败时，再重新执行一次
+		unique := r.Unique()
+		delete(crawler.Visited, unique)
+		r.Reload = false // 下次进来就非首次失败了，不是可重复的请求了
+		crawler.Scheduler.Push(r)
+		return
+	}
+
+	// 失败2次及以上，加载到失败队列中
+	crawler.failuresLock.Lock()
+	defer crawler.failuresLock.Unlock()
+	crawler.failures[r.Unique()] = r // 加入失败队列
 }
