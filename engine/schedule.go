@@ -173,16 +173,19 @@ func (crawler *Crawler) CreateWork() {
 			continue
 		}
 
+		// 获取当前任务对应的规则
 		rule, ok := r.Task.Rule.Trunk[r.RuleName]
 		if !ok {
 			crawler.Logger.Error("rule not found", zap.String("rule name", r.RuleName))
 			continue
 		}
+		// 内容解析
 		result := rule.ParseFunc(&collect.Context{
 			Body: body,
 			Req:  r,
 		})
 		// FIXME: 为啥要在创建请求任务的时候处理结果呢。。
+		// 新的任务加入队列中
 		if len(result.Requests) > 0 {
 			go crawler.Scheduler.Push(result.Requests...)
 		}
