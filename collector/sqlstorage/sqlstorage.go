@@ -9,7 +9,7 @@ import (
 )
 
 type SqlStorage struct {
-	dataDocker  []*collector.DataCell // 分批输出结果缓存
+	dataDocker  []*collector.DataCell // 分批输出结果的缓存
 	columnNames []sqldb.Field         // 标题字段
 	db          sqldb.DBer
 	Table       map[string]struct{}
