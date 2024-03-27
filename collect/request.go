@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
+	"github.com/Nrich-sunny/crawler/collector"
 	"regexp"
 	"time"
 )
@@ -19,12 +20,17 @@ type Property struct {
 // Task 整个任务实例，所有请求共享的参数
 type Task struct {
 	Property
-	Rule RuleTree // 任务中的规则
+	Store collector.Store
+	Rule  RuleTree // 任务中的规则
 }
 
 type Context struct {
 	Body []byte
 	Req  *Request
+}
+
+func (c *Context) GetRule(ruleName string) *Rule {
+	return c.Req.Task.Rule.Trunk[ruleName]
 }
 
 // ParseJsReq 动态解析JS中的正则表达式
@@ -45,6 +51,16 @@ func (c *Context) ParseJsReq(name string, reg string) ParseResult {
 		})
 	}
 	return result
+}
+
+func (c *Context) Output(data interface{}) *collector.OutputData {
+	res := &collector.OutputData{}
+	res.Data = make(map[string]interface{})
+	res.Data["Rule"] = c.Req.RuleName
+	res.Data["Data"] = data
+	res.Data["Url"] = c.Req.Url
+	res.Data["Time"] = time.Now().Format("2024-01-01 15:39:00")
+	return res
 }
 
 // OutputJs 解析内容并输出结果
@@ -72,6 +88,7 @@ type Request struct {
 	Depth     int    // 该请求对应的深度
 	Priority  int    // 请求的优先级, 值越大优先级越高（目前只有两个优先级：0 和 大于0）
 	RuleName  string // 该请求对应的规则名
+	TempData  *Temp  // 缓存临时数据供下一个阶段读取
 }
 
 type ParseResult struct {
