@@ -22,6 +22,10 @@ func init() {
 	//Storage.Add(doubangroup.DoubangroupJSTask)
 }
 
+func GetFields(taskName string, ruleName string) []string {
+	return Store.Hash[taskName].Rule.Trunk[ruleName].ItemFields
+}
+
 type CrawlerStore struct {
 	list []*collect.Task          // 任务队列
 	Hash map[string]*collect.Task // 任务哈希表， 任务名 -> 任务
@@ -233,6 +237,7 @@ func (crawler *Crawler) Schedule() {
 		if !ok {
 			crawler.Logger.Debug("task not found", zap.String("task name", seed.Name))
 		}
+		task.Storage = seed.Storage
 		// 获取初始化任务
 		rootReqs, err := task.Rule.Root()
 		if err != nil {
