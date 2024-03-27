@@ -4,22 +4,62 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
+	"regexp"
 	"time"
 )
 
+type Property struct {
+	Name     string        `json:"name"` // 任务名称，应保证唯一性
+	Url      string        `json:"url"`
+	Cookie   string        `json:"cookie"`
+	WaitTime time.Duration `json:"wait_time"`
+	MaxDepth int           `json:"max_depth"`
+}
+
 // Task 整个任务实例，所有请求共享的参数
 type Task struct {
-	Name     string // 用户界面显示的名称（应保证唯一性）
-	Url      string // 这里存的是一个 seed 对应的 url
-	Cookie   string
-	WaitTime time.Duration
-	MaxDepth int      // 任务的最大深度
-	Rule     RuleTree // 任务中的规则
+	Property
+	Rule RuleTree // 任务中的规则
 }
 
 type Context struct {
 	Body []byte
 	Req  *Request
+}
+
+// ParseJsReq 动态解析JS中的正则表达式
+func (c *Context) ParseJsReq(name string, reg string) ParseResult {
+	re := regexp.MustCompile(reg)
+
+	matches := re.FindAllSubmatch(c.Body, -1)
+	result := ParseResult{}
+
+	for _, m := range matches {
+		u := string(m[1])
+		result.Requests = append(result.Requests, &Request{
+			Method:   "GET",
+			Task:     c.Req.Task,
+			Url:      u,
+			Depth:    c.Req.Depth + 1,
+			RuleName: name,
+		})
+	}
+	return result
+}
+
+// OutputJs 解析内容并输出结果
+func (c *Context) OutputJs(reg string) ParseResult {
+	re := regexp.MustCompile(reg)
+	ok := re.Match(c.Body)
+	if !ok {
+		return ParseResult{
+			Items: []interface{}{},
+		}
+	}
+	result := ParseResult{
+		Items: []interface{}{c.Req.Url},
+	}
+	return result
 }
 
 // Request 单个请求
@@ -40,7 +80,7 @@ type ParseResult struct {
 }
 
 func (r *Request) Check() error {
-	if r.Depth > r.Task.MaxDepth {
+	if r.Depth > r.Task.Property.MaxDepth {
 		return errors.New("max depth limit reached")
 	}
 	return nil
