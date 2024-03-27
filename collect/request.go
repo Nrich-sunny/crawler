@@ -20,8 +20,8 @@ type Property struct {
 // Task 整个任务实例，所有请求共享的参数
 type Task struct {
 	Property
-	Store collector.Store
-	Rule  RuleTree // 任务中的规则
+	Storage collector.Storage
+	Rule    RuleTree // 任务中的规则
 }
 
 type Context struct {
@@ -53,13 +53,14 @@ func (c *Context) ParseJsReq(name string, reg string) ParseResult {
 	return result
 }
 
-func (c *Context) Output(data interface{}) *collector.OutputData {
-	res := &collector.OutputData{}
+func (c *Context) Output(data interface{}) *collector.DataCell {
+	res := &collector.DataCell{}
 	res.Data = make(map[string]interface{})
-	res.Data["Rule"] = c.Req.RuleName
-	res.Data["Data"] = data
-	res.Data["Url"] = c.Req.Url
-	res.Data["Time"] = time.Now().Format("2024-01-01 15:39:00")
+	res.Data["Task"] = c.Req.Task.Name                          // 当前的任务名
+	res.Data["Rule"] = c.Req.RuleName                           // 当前的规则名
+	res.Data["Data"] = data                                     // 当前书籍的详细信息
+	res.Data["Url"] = c.Req.Url                                 // 当前的网址
+	res.Data["Time"] = time.Now().Format("2024-01-01 15:39:00") // 当前的时间
 	return res
 }
 

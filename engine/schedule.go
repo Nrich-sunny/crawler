@@ -2,6 +2,7 @@ package engine
 
 import (
 	"github.com/Nrich-sunny/crawler/collect"
+	"github.com/Nrich-sunny/crawler/collector"
 	"github.com/Nrich-sunny/crawler/parse/doubanbook"
 	"github.com/Nrich-sunny/crawler/parse/doubangroup"
 	"github.com/robertkrimen/otto"
@@ -12,22 +13,22 @@ import (
 // Store 全局爬虫种类实例
 var Store = &CrawlerStore{
 	list: []*collect.Task{},          // 全局任务队列
-	hash: map[string]*collect.Task{}, // 全局任务哈希表
+	Hash: map[string]*collect.Task{}, // 全局任务哈希表
 }
 
 func init() {
 	Store.Add(doubangroup.DoubangroupTask)
 	Store.Add(doubanbook.DoubanBookTask)
-	//Store.Add(doubangroup.DoubangroupJSTask)
+	//Storage.Add(doubangroup.DoubangroupJSTask)
 }
 
 type CrawlerStore struct {
 	list []*collect.Task          // 任务队列
-	hash map[string]*collect.Task // 任务哈希表， 任务名 -> 任务
+	Hash map[string]*collect.Task // 任务哈希表， 任务名 -> 任务
 }
 
 func (c *CrawlerStore) Add(task *collect.Task) {
-	c.hash[task.Name] = task
+	c.Hash[task.Name] = task
 	c.list = append(c.list, task)
 }
 
@@ -113,7 +114,7 @@ func (c *CrawlerStore) AddJsTask(m *collect.TaskModule) {
 		}
 	}
 
-	c.hash[task.Name] = task
+	c.Hash[task.Name] = task
 	c.list = append(c.list, task)
 }
 
@@ -228,7 +229,7 @@ func (crawler *Crawler) Run() {
 func (crawler *Crawler) Schedule() {
 	var reqs []*collect.Request
 	for _, seed := range crawler.Seeds {
-		task, ok := Store.hash[seed.Name]
+		task, ok := Store.Hash[seed.Name]
 		if !ok {
 			crawler.Logger.Debug("task not found", zap.String("task name", seed.Name))
 		}
@@ -301,10 +302,13 @@ func (crawler *Crawler) HandleResult() {
 	for {
 		select {
 		case result := <-crawler.outCh:
-			//for _, req := range result.Requests {
-			//	crawler.requestCh <- req // 进一步要爬取的Requests列表
-			//}
 			for _, item := range result.Items {
+				switch d := item.(type) {
+				case *collector.DataCell:
+					name := d.GetTaskName()
+					task := Store.Hash[name]
+					task.Storage.Save(d)
+				}
 				crawler.Logger.Sugar().Info("get result: ", item)
 			}
 		}
