@@ -16,3 +16,5 @@ func (d *DataCell) GetTaskName() string {
 type Storage interface {
 	Save(datas ...*DataCell) error
 }
+
+// Test
