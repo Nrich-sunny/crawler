@@ -2,15 +2,15 @@ package sqlstorage
 
 import (
 	"encoding/json"
-	"github.com/Nrich-sunny/crawler/collector"
 	"github.com/Nrich-sunny/crawler/engine"
 	"github.com/Nrich-sunny/crawler/sqldb"
+	"github.com/Nrich-sunny/crawler/storage"
 	"go.uber.org/zap"
 )
 
 type SqlStorage struct {
-	dataDocker  []*collector.DataCell // 分批输出结果的缓存
-	columnNames []sqldb.Field         // 标题字段
+	dataDocker  []*storage.DataCell // 分批输出结果的缓存
+	columnNames []sqldb.Field       // 标题字段
 	db          sqldb.DBer
 	Table       map[string]struct{}
 	options
@@ -37,7 +37,7 @@ func New(opts ...Option) (*SqlStorage, error) {
 	return s, nil
 }
 
-func (s *SqlStorage) Save(dataCells ...*collector.DataCell) error {
+func (s *SqlStorage) Save(dataCells ...*storage.DataCell) error {
 	for _, cell := range dataCells {
 		name := cell.GetTableName()
 		if _, ok := s.Table[name]; !ok {
@@ -62,7 +62,7 @@ func (s *SqlStorage) Save(dataCells ...*collector.DataCell) error {
 	return nil
 }
 
-func getFields(cell *collector.DataCell) []sqldb.Field {
+func getFields(cell *storage.DataCell) []sqldb.Field {
 	taskName := cell.Data["Task"].(string)
 	ruleName := cell.Data["Rule"].(string)
 	fields := engine.GetFields(taskName, ruleName)

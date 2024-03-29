@@ -1,4 +1,4 @@
-package collector
+package storage
 
 type DataCell struct {
 	Data map[string]interface{}
@@ -16,5 +16,3 @@ func (d *DataCell) GetTaskName() string {
 type Storage interface {
 	Save(datas ...*DataCell) error
 }
-
-// Test

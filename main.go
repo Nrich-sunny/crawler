@@ -2,10 +2,10 @@ package main
 
 import (
 	"github.com/Nrich-sunny/crawler/collect"
-	"github.com/Nrich-sunny/crawler/collector"
-	"github.com/Nrich-sunny/crawler/collector/sqlstorage"
 	"github.com/Nrich-sunny/crawler/engine"
 	"github.com/Nrich-sunny/crawler/log"
+	"github.com/Nrich-sunny/crawler/storage"
+	"github.com/Nrich-sunny/crawler/storage/sqlstorage"
 	"go.uber.org/zap/zapcore"
 	"time"
 )
@@ -24,7 +24,7 @@ func main() {
 	//	return
 	//}
 
-	var storage collector.Storage
+	var storage storage.Storage
 	storage, err := sqlstorage.New(
 		sqlstorage.WithSqlUrl("root:123456@tcp(127.0.0.1:3326)/crawler?charset=utf8"),
 		sqlstorage.WithLogger(logger.Named("sqlDB")),

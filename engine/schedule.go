@@ -2,9 +2,9 @@ package engine
 
 import (
 	"github.com/Nrich-sunny/crawler/collect"
-	"github.com/Nrich-sunny/crawler/collector"
 	"github.com/Nrich-sunny/crawler/parse/doubanbook"
 	"github.com/Nrich-sunny/crawler/parse/doubangroup"
+	"github.com/Nrich-sunny/crawler/storage"
 	"github.com/robertkrimen/otto"
 	"go.uber.org/zap"
 	"sync"
@@ -309,7 +309,7 @@ func (crawler *Crawler) HandleResult() {
 		case result := <-crawler.outCh:
 			for _, item := range result.Items {
 				switch d := item.(type) {
-				case *collector.DataCell:
+				case *storage.DataCell:
 					name := d.GetTaskName()
 					task := Store.Hash[name]
 					task.Storage.Save(d)
