@@ -7,6 +7,7 @@ import (
 	"github.com/Nrich-sunny/crawler/storage"
 	"github.com/robertkrimen/otto"
 	"go.uber.org/zap"
+	"runtime/debug"
 	"sync"
 )
 
@@ -258,6 +259,11 @@ func (crawler *Crawler) Schedule() {
 }
 
 func (crawler *Crawler) CreateWork() {
+	defer func() {
+		if err := recover(); err != nil {
+			crawler.Logger.Error("worker panic", zap.Any("err", err), zap.String("stack", string(debug.Stack())))
+		}
+	}()
 	for {
 		r := crawler.Scheduler.Pull()
 		// 检查当前 request 是否已经达到最大深度限制

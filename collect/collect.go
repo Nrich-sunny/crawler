@@ -27,13 +27,13 @@ func (BaseFetch) Get(req *Request) ([]byte, error) {
 	resp, err := http.Get(req.Url)
 
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("Error status code: %v\n", resp.StatusCode)
+		return nil, fmt.Errorf("error status code: %d", resp.StatusCode)
 	}
 
 	bodyReader := bufio.NewReader(resp.Body)
@@ -73,7 +73,6 @@ func (b BrowserFetch) Get(request *Request) ([]byte, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		b.Logger.Error("fetch failed", zap.Error(err))
 		return nil, err
 	}
 
