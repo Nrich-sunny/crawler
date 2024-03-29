@@ -237,7 +237,9 @@ func (crawler *Crawler) Schedule() {
 		if !ok {
 			crawler.Logger.Debug("task not found", zap.String("task name", seed.Name))
 		}
+		task.Fetcher = seed.Fetcher
 		task.Storage = seed.Storage
+		task.Limit = seed.Limit
 		// 获取初始化任务
 		rootReqs, err := task.Rule.Root()
 		if err != nil {
@@ -245,6 +247,9 @@ func (crawler *Crawler) Schedule() {
 				zap.Error(err),
 			)
 			continue
+		}
+		for _, req := range rootReqs {
+			req.Task = task
 		}
 		reqs = append(reqs, rootReqs...)
 	}

@@ -55,7 +55,9 @@ func (s *SqlStorage) Save(dataCells ...*storage.DataCell) error {
 			s.Table[name] = struct{}{}
 		}
 		if len(s.dataDocker) >= s.BatchCount {
-			s.Flush()
+			if err := s.Flush(); err != nil {
+				s.logger.Error("insert data failed", zap.Error(err))
+			}
 		}
 		s.dataDocker = append(s.dataDocker, cell)
 	}
@@ -85,6 +87,9 @@ func (s *SqlStorage) Flush() error {
 	if len(s.dataDocker) == 0 {
 		return nil
 	}
+	defer func() {
+		s.dataDocker = nil
+	}()
 	args := make([]interface{}, 0)
 	for _, datacell := range s.dataDocker {
 		ruleName := datacell.Data["Rule"].(string)
