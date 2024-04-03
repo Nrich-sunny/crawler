@@ -5,29 +5,11 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
-	"github.com/Nrich-sunny/crawler/limiter"
 	"github.com/Nrich-sunny/crawler/storage"
 	"math/rand"
 	"regexp"
 	"time"
 )
-
-type Property struct {
-	Name     string `json:"name"` // 任务名称，应保证唯一性
-	Url      string `json:"url"`
-	Cookie   string `json:"cookie"`
-	WaitTime int64  `json:"wait_time"` // 随机休眠时间，秒
-	MaxDepth int    `json:"max_depth"`
-}
-
-// Task 整个任务实例，所有请求共享的参数
-type Task struct {
-	Property
-	Fetcher Fetcher
-	Storage storage.Storage
-	Rule    RuleTree // 任务中的规则
-	Limit   limiter.RateLimiter
-}
 
 type Context struct {
 	Body []byte
@@ -103,7 +85,7 @@ type ParseResult struct {
 }
 
 func (r *Request) Check() error {
-	if r.Depth > r.Task.Property.MaxDepth {
+	if r.Depth > r.Task.MaxDepth {
 		return errors.New("max depth limit reached")
 	}
 	return nil

@@ -74,9 +74,7 @@ func AddJsReq(jreq map[string]interface{}) []*collect.Request {
 
 // AddJsTask 初始化任务与规则
 func (c *CrawlerStore) AddJsTask(m *collect.TaskModule) {
-	task := &collect.Task{
-		Property: m.Property,
-	}
+	task := &collect.Task{}
 
 	task.Rule.Root = func() ([]*collect.Request, error) {
 		vm := otto.New()
@@ -233,14 +231,13 @@ func (crawler *Crawler) Run() {
 
 func (crawler *Crawler) Schedule() {
 	var reqs []*collect.Request
-	for _, seed := range crawler.Seeds {
-		task, ok := Store.Hash[seed.Name]
+	for _, task := range crawler.Seeds {
+		t, ok := Store.Hash[task.Name]
 		if !ok {
-			crawler.Logger.Debug("task not found", zap.String("task name", seed.Name))
+			crawler.Logger.Error("task not found", zap.String("task name", task.Name))
+			continue
 		}
-		task.Fetcher = seed.Fetcher
-		task.Storage = seed.Storage
-		task.Limit = seed.Limit
+		task.Rule = t.Rule
 		// 获取初始化任务
 		rootReqs, err := task.Rule.Root()
 		if err != nil {
@@ -323,7 +320,9 @@ func (crawler *Crawler) HandleResult() {
 				case *storage.DataCell:
 					name := d.GetTaskName()
 					task := Store.Hash[name]
-					task.Storage.Save(d)
+					if err := task.Storage.Save(d); err != nil {
+						crawler.Logger.Error("")
+					}
 				}
 				crawler.Logger.Sugar().Info("get result: ", item)
 			}

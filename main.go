@@ -37,18 +37,19 @@ func main() {
 	enc := toml.NewEncoder()
 	cfg, err := config.NewConfig(config.WithReader(json.NewReader(reader.WithEncoder(enc))))
 	err = cfg.Load(file.NewSource(
-		file.WithPath("C:\\Code\\Go\\crawler\\config.toml"),
+		//file.WithPath("github.com/Nrich-sunny/crawler/config.toml"),
+		file.WithPath("D:\\Code\\GO\\geek\\DistributedCrawler\\crawler\\config.toml"),
 		source.WithEncoder(enc),
 	))
 	if err != nil {
-		return
+		panic(err)
 	}
 
 	// log
 	logText := cfg.Get("logLevel").String("INFO")
 	logLevel, err := zapcore.ParseLevel(logText)
 	if err != nil {
-		return
+		panic(err)
 	}
 	plugin := log.NewStdoutPlugin(logLevel)
 	logger := log.NewLogger(plugin)
@@ -87,26 +88,14 @@ func main() {
 		Logger:  logger,
 	}
 
-	// speed limiter
-	// 令牌产生速率：2秒一个，桶容量：1
-	secondLimit := rate.NewLimiter(limiter.Per(1, 2*time.Second), 1)
-	// 令牌产生速率：1分钟20个
-	minuteLimit := rate.NewLimiter(limiter.Per(20, 1*time.Minute), 20)
-	// 多层限速器
-	multiLimiter := limiter.NewMultiLimiter(secondLimit, minuteLimit)
-
 	// init tasks
-	var seeds = make([]*collect.Task, 0, 1000) // 在一开始就要分配好切片的容量, 否则频繁地扩容会影响程序的性能
-	seeds = append(seeds, &collect.Task{
-		Property: collect.Property{
-			Name: "douban_book_list",
-		},
-		Fetcher: fetcher,
-		Storage: storage,
-		Limit:   multiLimiter,
-	})
+	var tConfig []collect.TaskConfig
+	if err := cfg.Get("Tasks").Scan(&tConfig); err != nil {
+		logger.Error("init seed tasks ", zap.Error(err))
+	}
+	seeds := ParseTaskConfig(logger, fetcher, storage, tConfig)
 
-	_ = engine.NewEngine(
+	crawler := engine.NewEngine(
 		engine.WithFetcher(fetcher),
 		engine.WithLogger(logger),
 		engine.WithWorkCount(5),
@@ -115,7 +104,7 @@ func main() {
 	)
 
 	// worker start
-	//go crawler.Run()
+	go crawler.Run()
 
 	var sConfig ServerConfig
 	if err := cfg.Get("GRPCServer").Scan(&sConfig); err != nil {
@@ -198,4 +187,43 @@ type ServerConfig struct {
 	RegisterInterval  int
 	ClientTimeOut     int
 	Name              string
+}
+
+func ParseTaskConfig(logger *zap.Logger, f collect.Fetcher, s storage.Storage, cfgs []collect.TaskConfig) []*collect.Task {
+	tasks := make([]*collect.Task, 0, 1000)
+	for _, cfg := range cfgs {
+		t := collect.NewTask(
+			collect.WithName(cfg.Name),
+			collect.WithReload(cfg.Reload),
+			collect.WithCookie(cfg.Cookie),
+			collect.WithLogger(logger),
+			collect.WithStorage(s),
+		)
+
+		if cfg.WaitTime > 0 {
+			t.WaitTime = cfg.WaitTime
+		}
+
+		if cfg.MaxDepth > 0 {
+			t.MaxDepth = cfg.MaxDepth
+		}
+
+		var limits []limiter.RateLimiter
+		if len(cfg.Limits) > 0 {
+			for _, lcfg := range cfg.Limits {
+				// speed limiter
+				l := rate.NewLimiter(limiter.Per(lcfg.EventCount, time.Duration(lcfg.EventDur)*time.Second), 1)
+				limits = append(limits, l)
+			}
+			multiLimiter := limiter.NewMultiLimiter(limits...)
+			t.Limit = multiLimiter
+		}
+
+		switch cfg.Fetcher {
+		case "browser":
+			t.Fetcher = f
+		}
+		tasks = append(tasks, t)
+	}
+	return tasks
 }
