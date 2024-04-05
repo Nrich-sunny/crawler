@@ -17,16 +17,6 @@ var workerCmd = &cobra.Command{
 	},
 }
 
-var masterCmd = &cobra.Command{
-	Use:   "master",
-	Short: "run master service.",
-	Long:  "run master service.",
-	Args:  cobra.NoArgs,
-	Run: func(cmd *cobra.Command, args []string) {
-		master.Run()
-	},
-}
-
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "print version.",
@@ -41,16 +31,6 @@ func Execute() {
 	var rootCmd = &cobra.Command{
 		Use: "crawler",
 	}
-	rootCmd.AddCommand(workerCmd, masterCmd, versionCmd)
+	rootCmd.AddCommand(workerCmd, master.MasterCmd, versionCmd)
 	rootCmd.Execute()
-}
-
-var MasterId string
-var HTTPListenAddress string
-var GRPCListenAddress string
-
-func init() {
-	masterCmd.Flags().StringVar(&MasterId, "id", "1", "set master id")
-	masterCmd.Flags().StringVar(&HTTPListenAddress, "http", ":8081", "set HTTP listen address")
-	masterCmd.Flags().StringVar(&GRPCListenAddress, "grpc", ":9091", "set GRPC listen address")
 }
