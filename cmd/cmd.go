@@ -45,12 +45,12 @@ func Execute() {
 	rootCmd.Execute()
 }
 
-var masterId string
+var MasterId string
 var HTTPListenAddress string
 var GRPCListenAddress string
 
 func init() {
-	masterCmd.Flags().StringVar(&masterId, "id", "1", "set master id")
+	masterCmd.Flags().StringVar(&MasterId, "id", "1", "set master id")
 	masterCmd.Flags().StringVar(&HTTPListenAddress, "http", ":8081", "set HTTP listen address")
 	masterCmd.Flags().StringVar(&GRPCListenAddress, "grpc", ":9091", "set GRPC listen address")
 }

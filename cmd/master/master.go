@@ -2,6 +2,7 @@ package master
 
 import (
 	"github.com/Nrich-sunny/crawler/log"
+	"github.com/Nrich-sunny/crawler/master"
 	pb "github.com/Nrich-sunny/crawler/proto/greeter"
 	"github.com/go-micro/plugins/v4/config/encoder/toml"
 	etcdReg "github.com/go-micro/plugins/v4/registry/etcd"
@@ -55,6 +56,14 @@ func Run() {
 		logger.Error("get GRPC Server config failed", zap.Error(err))
 	}
 	logger.Sugar().Debugf("grpc server config,%+v", sConfig)
+
+	// start master
+	master.New(
+		sConfig.ID,
+		master.WithLogger(logger.Named("master")),
+		master.WithGRPCAddress(sConfig.GRPCListenAddress),
+		master.WithRegistryURL(sConfig.RegistryAddress),
+	)
 
 	// start http proxy to GRPC
 	go RunHTTPServer(sConfig)

@@ -11,6 +11,7 @@ require (
 	github.com/spf13/cobra v1.1.3
 	github.com/stretchr/testify v1.8.4
 	go-micro.dev/v4 v4.10.2
+	go.etcd.io/etcd/client/v3 v3.5.2
 	go.uber.org/zap v1.24.0
 	golang.org/x/net v0.20.0
 	golang.org/x/text v0.14.0
