@@ -8,6 +8,7 @@ require (
 	github.com/go-micro/plugins/v4/server/grpc v1.2.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0
 	github.com/robertkrimen/otto v0.3.0
+	github.com/spf13/cobra v1.1.3
 	github.com/stretchr/testify v1.8.4
 	go-micro.dev/v4 v4.10.2
 	go.uber.org/zap v1.24.0
