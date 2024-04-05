@@ -1,7 +1,6 @@
 package master
 
 import (
-	"fmt"
 	"github.com/Nrich-sunny/crawler/log"
 	pb "github.com/Nrich-sunny/crawler/proto/greeter"
 	"github.com/go-micro/plugins/v4/config/encoder/toml"
@@ -50,8 +49,6 @@ func Run() {
 
 	// set zap global logger
 	zap.ReplaceGlobals(logger)
-
-	fmt.Println("hello master")
 
 	var sConfig ServerConfig
 	if err := cfg.Get("MasterServer").Scan(&sConfig); err != nil {
