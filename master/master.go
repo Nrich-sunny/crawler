@@ -13,6 +13,7 @@ import (
 	"golang.org/x/net/context"
 	"net"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -31,9 +32,15 @@ const (
 // ResourceSpec 资源的规格
 type ResourceSpec struct {
 	ID           string
-	Name         string
-	AssignedNode string
-	CreationTime int64
+	Name         string // 资源名称（任务名称）
+	AssignedNode string // 资源分配到的 Worker 节点: "{NodeID}|{NodeAddress}"
+	CreationTime int64  // 资源创建时间
+}
+
+// WorkerNodeSpec 描述 Worker 节点的状态
+type WorkerNodeSpec struct {
+	Node    *registry.Node // Worker 节点的信息
+	Payload int            // 节点的负载(当前有多少资源分配到了该节点)
 }
 
 // Message 用于 Master 和 Worker 之间通信的消息结构
@@ -45,13 +52,13 @@ type Message struct {
 // Master
 // ID: 包含 Master 的序号、Master 的 IP 地址和监听的 GRPC 地址
 type Master struct {
-	ID        string                    // Master 的 ID
-	ready     int32                     // 用于标记当前 Master 是否为 Leader
-	leaderID  string                    // 记录当前集群中的 Leader
-	workNodes map[string]*registry.Node // 记录当前集群中所有的 Worker 节点
-	resources map[string]*ResourceSpec  // 记录当前集群中所有的资源(爬虫任务可以视为一种资源)
-	IDGen     *snowflake.Node           // 生成全局唯一 ID
-	etcdCli   *clientv3.Client          // etcd 客户端
+	ID        string                     // Master 的 ID
+	ready     int32                      // 用于标记当前 Master 是否为 Leader
+	leaderID  string                     // 记录当前集群中的 Leader
+	workNodes map[string]*WorkerNodeSpec // 记录当前集群中所有的 Worker 节点的信息
+	resources map[string]*ResourceSpec   // 记录当前集群中所有的资源(爬虫任务可以视为一种资源)
+	IDGen     *snowflake.Node            // 生成全局唯一 ID
+	etcdCli   *clientv3.Client           // etcd 客户端
 	options
 }
 
@@ -120,7 +127,7 @@ func (m *Master) HandleMsg() {
 func (m *Master) AddSeed() {
 	rs := make([]*ResourceSpec, 0, len(m.Seeds))
 	for _, seed := range m.Seeds {
-		resp, err := m.etcdCli.Get(context.Background(), getResourcePath(seed.Name), clientv3.WithSerializable())
+		resp, err := m.etcdCli.Get(context.Background(), getResourcePath(seed.Name), clientv3.WithPrefix(), clientv3.WithSerializable())
 		if err != nil {
 			m.logger.Error("get resource failed", zap.Error(err))
 			continue
@@ -136,17 +143,23 @@ func (m *Master) AddSeed() {
 	m.AddResource(rs)
 }
 
-// AddResource 将资源写入 etcd
+// AddResource 将资源写入 etcd，同时为其分配 Worker 节点
 func (m *Master) AddResource(rs []*ResourceSpec) {
 	for _, r := range rs {
 		// 资源各个字段填充
 		r.ID = m.IDGen.Generate().String()
-		nodeAssign, err := m.Assign(r)
+		// 为资源分配 Worker 节点
+		nodeAssigned, err := m.Assign(r)
 		if err != nil {
 			m.logger.Error("assign worker failed", zap.Error(err))
 			continue
 		}
-		r.AssignedNode = nodeAssign.Id + "|" + nodeAssign.Address
+		if nodeAssigned.Node == nil {
+			m.logger.Error("no node to assgin")
+			continue
+		}
+		r.AssignedNode = nodeAssigned.Node.Id + "|" + nodeAssigned.Node.Address
+
 		r.CreationTime = time.Now().UnixNano()
 		m.logger.Debug("add resource", zap.Any("specs", r))
 
@@ -158,16 +171,42 @@ func (m *Master) AddResource(rs []*ResourceSpec) {
 		}
 		// 记录资源
 		m.resources[r.Name] = r
+		// 更新 Worker 节点的负载
+		nodeAssigned.Payload++
 	}
 }
 
 // Assign 为资源分配 Worker 节点, 计算当前的资源应该被分配到哪个节点
 // 先用随机的方式选择一个节点
-func (m *Master) Assign(r *ResourceSpec) (*registry.Node, error) {
+func (m *Master) Assign(r *ResourceSpec) (*WorkerNodeSpec, error) {
 	for _, n := range m.workNodes {
 		return n, nil
 	}
 	return nil, errors.New("no worker nodes")
+}
+
+func (m *Master) reAssign() {
+	// 需要重新分配 worker 节点的资源
+	rs := make([]*ResourceSpec, 0, len(m.resources))
+
+	for _, r := range m.resources {
+		// 没有分配节点的资源, 记录
+		if r.AssignedNode == "" {
+			rs = append(rs, r)
+			continue
+		}
+
+		nodeID, err := getNodeID(r.AssignedNode)
+		if err != nil {
+			m.logger.Error("get nodeId failed", zap.Error(err))
+		}
+		// 分配了节点的资源，但节点已经不存在了，记录
+		if _, ok := m.workNodes[nodeID]; !ok {
+			rs = append(rs, r)
+		}
+	}
+	// 重新分配资源
+	m.AddResource(rs)
 }
 
 func (m *Master) IsLeader() bool {
@@ -184,7 +223,7 @@ func (m *Master) Campaign() {
 
 	// 创建一个新的 etcd 选举对象
 	// 抢占到 "/resources/election" Key 的 Master 将变为 Leader
-	election := concurrency.NewElection(session, "/resources/election")
+	election := concurrency.NewElection(session, "/crawler/election")
 	leaderCh := make(chan error)
 
 	// 当前的 Master 进行 Leader 的选举，成功选举后取消阻塞
@@ -225,7 +264,15 @@ func (m *Master) Campaign() {
 		// workerNodeChange 负责监听当前集群中 Worker 节点的变化
 		case resp := <-workerNodeChange:
 			m.logger.Info("watch worker change", zap.Any("worker:", resp))
+			// 全量更新 Worker 节点信息
 			m.updateWorkNodes()
+			// 全量更新资源的状态
+			if err := m.loadResource(); err != nil {
+				m.logger.Error("loadResource failed", zap.Error(err))
+			}
+			// 重新分配资源
+			m.reAssign()
+
 		case <-time.After(20 * time.Second):
 			resp, err := election.Leader(context.Background())
 			if err != nil {
@@ -276,22 +323,30 @@ func (m *Master) WatchWorker() chan *registry.Result {
 }
 
 func (m *Master) BecomeLeader() error {
-	// 当 Master 成为新的 Leader 后，要全量地获取一次 etcd 中当前最新的资源信息
+	// 当 Master 成为新的 Leader 后，全量更新当前 Worker 的节点状态 和 资源的状态
+	// 全量加载当前的 Worker 节点
+	m.updateWorkNodes()
+	// 全量获取 etcd 中当前最新的资源信息
 	if err := m.loadResource(); err != nil {
 		return fmt.Errorf("loadResource failed:%w", err)
 	}
 
+	// 重新分配资源
+	m.reAssign()
+
+	// 标记当前 Master 成为 Leader
 	atomic.StoreInt32(&m.ready, 1)
 	return nil
 }
 
 // loadResource 全量地获取一次 etcd 中当前最新的资源信息, 并把它保存到内存中
 func (m *Master) loadResource() error {
-	resp, err := m.etcdCli.Get(context.Background(), RESOURCEPATH, clientv3.WithSerializable())
+	resp, err := m.etcdCli.Get(context.Background(), RESOURCEPATH, clientv3.WithPrefix(), clientv3.WithSerializable())
 	if err != nil {
 		return fmt.Errorf("etcd get failed")
 	}
 
+	// 保存资源信息
 	resources := make(map[string]*ResourceSpec)
 	for _, kv := range resp.Kvs {
 		r, err := decode(kv.Value)
@@ -302,6 +357,18 @@ func (m *Master) loadResource() error {
 
 	m.logger.Info("leader init load resource", zap.Int("lenth", len(m.resources)))
 	m.resources = resources
+
+	// 更新 Worker 节点的负载
+	for _, r := range m.resources {
+		if r.AssignedNode != "" {
+			id, err := getNodeID(r.AssignedNode)
+			if err != nil {
+				m.logger.Error("getNodeID failed", zap.Error(err))
+			}
+			node := m.workNodes[id]
+			node.Payload++
+		}
+	}
 	return nil
 }
 
@@ -312,10 +379,12 @@ func (m *Master) updateWorkNodes() {
 		m.logger.Error("get service ", zap.Error(err))
 	}
 
-	nodes := make(map[string]*registry.Node)
+	nodes := make(map[string]*WorkerNodeSpec)
 	if len(services) > 0 {
 		for _, spec := range services[0].Nodes {
-			nodes[spec.Id] = spec
+			nodes[spec.Id] = &WorkerNodeSpec{
+				Node: spec,
+			}
 		}
 	}
 
@@ -325,13 +394,13 @@ func (m *Master) updateWorkNodes() {
 	m.workNodes = nodes
 }
 
-func workNodeDiff(old map[string]*registry.Node, new map[string]*registry.Node) ([]string, []string, []string) {
+func workNodeDiff(old map[string]*WorkerNodeSpec, new map[string]*WorkerNodeSpec) ([]string, []string, []string) {
 	added := make([]string, 0)
 	deleted := make([]string, 0)
 	changed := make([]string, 0)
 	for k, v := range new {
 		if ov, ok := old[k]; ok {
-			if !reflect.DeepEqual(v, ov) {
+			if !reflect.DeepEqual(v.Node, ov.Node) {
 				changed = append(changed, k)
 			}
 		} else {
@@ -385,4 +454,13 @@ func decode(ds []byte) (*ResourceSpec, error) {
 	var s *ResourceSpec
 	err := json.Unmarshal(ds, &s)
 	return s, err
+}
+
+func getNodeID(assigned string) (string, error) {
+	node := strings.Split(assigned, "|")
+	if len(node) < 2 {
+		return "", errors.New("")
+	}
+	id := node[0]
+	return id, nil
 }
