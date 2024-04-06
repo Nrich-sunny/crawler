@@ -79,23 +79,24 @@ func Run() {
 	logger.Sugar().Debugf("grpc server config,%+v", sConfig)
 
 	// start master
+	reg := etcdReg.NewRegistry(registry.Addrs(sConfig.RegistryAddress))
 	master.New(
 		masterId,
 		master.WithLogger(logger.Named("master")),
 		master.WithGRPCAddress(GRPCListenAddress),
 		master.WithRegistryURL(sConfig.RegistryAddress),
+		master.WithRegistry(reg),
 	)
 
 	// start http proxy to GRPC
 	go RunHTTPServer(sConfig)
 
 	// start grpc server
-	RunGRPCServer(logger, sConfig)
+	RunGRPCServer(logger, sConfig, reg)
 
 }
 
-func RunGRPCServer(logger *zap.Logger, cfg ServerConfig) {
-	reg := etcdReg.NewRegistry(registry.Addrs(cfg.RegistryAddress))
+func RunGRPCServer(logger *zap.Logger, cfg ServerConfig, reg registry.Registry) {
 	service := micro.NewService(
 		micro.Server(gs.NewServer(
 			server.Id(masterId),

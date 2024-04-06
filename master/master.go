@@ -2,18 +2,25 @@ package master
 
 import (
 	"errors"
+	"github.com/Nrich-sunny/crawler/cmd/worker"
+	"go-micro.dev/v4/registry"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
 	"go.uber.org/zap"
 	"golang.org/x/net/context"
 	"net"
+	"reflect"
+	"sync/atomic"
 	"time"
 )
 
 // Master
 // ID: 包含 Master 的序号、Master 的 IP 地址和监听的 GRPC 地址
 type Master struct {
-	ID string
+	ID        string                    // Master 的 ID
+	ready     int32                     // 用于标记当前 Master 是否为 Leader
+	leaderID  string                    // 记录当前集群中的 Leader
+	workNodes map[string]*registry.Node // 记录当前集群中所有的 Worker 节点
 	options
 }
 
@@ -35,6 +42,10 @@ func New(id string, opts ...Option) (*Master, error) {
 
 	return &Master{}, nil
 
+}
+
+func (m *Master) IsLeader() bool {
+	return atomic.LoadInt32(&m.ready) != 0
 }
 
 // Campaign 分布式选主的核心逻辑
@@ -67,6 +78,8 @@ func (m *Master) Campaign() {
 		m.logger.Info("watch leader change", zap.String("leader", string(resp.Kvs[0].Value)))
 	}
 
+	workerNodeChange := m.WatchWorker()
+
 	for {
 		select {
 		// leaderCh 负责监听当前 Master 是否当上了 Leader
@@ -76,20 +89,36 @@ func (m *Master) Campaign() {
 				go m.elect(election, leaderCh)
 				return
 			} else {
+				// 当选 Leader
 				m.logger.Info("master change to leader")
+				m.leaderID = m.ID
+				if !m.IsLeader() {
+					m.BecomeLeader()
+				}
 			}
 		// leaderChange 负责监听当前集群中 Leader 是否发生了变化
 		case resp := <-leaderChangeCh:
 			if len(resp.Kvs) > 0 {
 				m.logger.Info("watch leader change", zap.String("leader", string(resp.Kvs[0].Value)))
 			}
-		case <-time.After(10 * time.Second):
+		// workerNodeChange 负责监听当前集群中 Worker 节点的变化
+		case resp := <-workerNodeChange:
+			m.logger.Info("watch worker change", zap.Any("worker:", resp))
+			m.updateNodes()
+		case <-time.After(20 * time.Second):
 			resp, err := election.Leader(context.Background())
 			if err != nil {
 				m.logger.Info("get Leader failed", zap.Error(err))
+				if errors.Is(err, concurrency.ErrElectionNoLeader) {
+					go m.elect(election, leaderCh)
+				}
 			}
 			if resp != nil && len(resp.Kvs) > 0 {
 				m.logger.Debug("get Leader", zap.String("value", string(resp.Kvs[0].Value)))
+				if m.IsLeader() && m.ID != string(resp.Kvs[0].Value) {
+					//当前已不再是leader
+					atomic.StoreInt32(&m.ready, 0)
+				}
 			}
 		}
 
@@ -100,6 +129,74 @@ func (m *Master) elect(election *concurrency.Election, ch chan error) {
 	// 阻塞直到选主成功
 	err := election.Campaign(context.Background(), m.ID)
 	ch <- err
+}
+
+// WatchWorker 监听 Worker 节点的信息，感知到 Worker 节点的注册与销毁
+func (m *Master) WatchWorker() chan *registry.Result {
+	// 监听 Worker 节点的变化
+	watcher, err := m.registry.Watch(registry.WatchService(worker.ServiceName))
+	if err != nil {
+		panic(err)
+	}
+	ch := make(chan *registry.Result)
+	go func() {
+		for {
+			res, err := watcher.Next() // 堵塞等待节点的下一个事件
+			if err != nil {
+				m.logger.Error("watch worker service failed", zap.Error(err))
+				continue
+			}
+			// Master 收到节点变化事件，将事件发送到 workerNodeChange 通道
+			ch <- res
+		}
+	}()
+
+	return ch
+}
+
+func (m *Master) BecomeLeader() {
+	atomic.StoreInt32(&m.ready, 1)
+}
+
+// updateNodes 更新当前集群中的 Worker 节点信息
+func (m *Master) updateNodes() {
+	services, err := m.registry.GetService(worker.ServiceName)
+	if err != nil {
+		m.logger.Error("get service ", zap.Error(err))
+	}
+
+	nodes := make(map[string]*registry.Node)
+	if len(services) > 0 {
+		for _, spec := range services[0].Nodes {
+			nodes[spec.Id] = spec
+		}
+	}
+
+	added, deleted, changed := workNodeDiff(m.workNodes, nodes)
+	m.logger.Sugar().Info("worker joined: ", added, ", leaved: ", deleted, ", changed: ", changed)
+
+	m.workNodes = nodes
+}
+
+func workNodeDiff(old map[string]*registry.Node, new map[string]*registry.Node) ([]string, []string, []string) {
+	added := make([]string, 0)
+	deleted := make([]string, 0)
+	changed := make([]string, 0)
+	for k, v := range new {
+		if ov, ok := old[k]; ok {
+			if !reflect.DeepEqual(v, ov) {
+				changed = append(changed, k)
+			}
+		} else {
+			added = append(added, k)
+		}
+	}
+	for k := range old {
+		if _, ok := new[k]; !ok {
+			deleted = append(deleted, k)
+		}
+	}
+	return added, deleted, changed
 }
 
 func genMasterID(id string, ipv4 string, GRPCAddress string) string {
