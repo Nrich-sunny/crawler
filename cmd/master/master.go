@@ -1,6 +1,8 @@
 package master
 
 import (
+	"github.com/Nrich-sunny/crawler/cmd/worker"
+	"github.com/Nrich-sunny/crawler/collect"
 	"github.com/Nrich-sunny/crawler/log"
 	"github.com/Nrich-sunny/crawler/master"
 	pb "github.com/Nrich-sunny/crawler/proto/greeter"
@@ -78,6 +80,13 @@ func Run() {
 	}
 	logger.Sugar().Debugf("grpc server config,%+v", sConfig)
 
+	// init tasks
+	var tConfig []collect.TaskConfig
+	if err := cfg.Get("Tasks").Scan(&tConfig); err != nil {
+		logger.Error("init seed tasks,", zap.Error(err))
+	}
+	seeds := worker.ParseTaskConfig(logger, nil, nil, tConfig)
+
 	// start master
 	reg := etcdReg.NewRegistry(registry.Addrs(sConfig.RegistryAddress))
 	master.New(
@@ -86,6 +95,7 @@ func Run() {
 		master.WithGRPCAddress(GRPCListenAddress),
 		master.WithRegistryURL(sConfig.RegistryAddress),
 		master.WithRegistry(reg),
+		master.WithSeeds(seeds),
 	)
 
 	// start http proxy to GRPC

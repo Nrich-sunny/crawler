@@ -1,6 +1,7 @@
 package master
 
 import (
+	"github.com/Nrich-sunny/crawler/collect"
 	"go-micro.dev/v4/registry"
 	"go.uber.org/zap"
 )
@@ -10,6 +11,7 @@ type options struct {
 	registryURL string // 注册中心地址(端口)
 	GRPCAddress string
 	registry    registry.Registry // 注册中心
+	Seeds       []*collect.Task
 }
 
 var defaultOptions = options{
@@ -39,5 +41,11 @@ func WithGRPCAddress(GRPCAddress string) Option {
 func WithRegistry(registry registry.Registry) Option {
 	return func(opts *options) {
 		opts.registry = registry
+	}
+}
+
+func WithSeeds(seed []*collect.Task) Option {
+	return func(opts *options) {
+		opts.Seeds = seed
 	}
 }

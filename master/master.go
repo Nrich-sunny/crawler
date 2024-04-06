@@ -1,8 +1,11 @@
 package master
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/Nrich-sunny/crawler/cmd/worker"
+	"github.com/bwmarrin/snowflake"
 	"go-micro.dev/v4/registry"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
@@ -14,6 +17,31 @@ import (
 	"time"
 )
 
+const (
+	RESOURCEPATH = "/resources"
+)
+
+type Command int
+
+const (
+	MSGADD Command = iota
+	MSGDELETE
+)
+
+// ResourceSpec 资源的规格
+type ResourceSpec struct {
+	ID           string
+	Name         string
+	AssignedNode string
+	CreationTime int64
+}
+
+// Message 用于 Master 和 Worker 之间通信的消息结构
+type Message struct {
+	Cmd   Command
+	Specs []*ResourceSpec
+}
+
 // Master
 // ID: 包含 Master 的序号、Master 的 IP 地址和监听的 GRPC 地址
 type Master struct {
@@ -21,27 +49,125 @@ type Master struct {
 	ready     int32                     // 用于标记当前 Master 是否为 Leader
 	leaderID  string                    // 记录当前集群中的 Leader
 	workNodes map[string]*registry.Node // 记录当前集群中所有的 Worker 节点
+	resources map[string]*ResourceSpec  // 记录当前集群中所有的资源(爬虫任务可以视为一种资源)
+	IDGen     *snowflake.Node           // 生成全局唯一 ID
+	etcdCli   *clientv3.Client          // etcd 客户端
 	options
 }
 
 func New(id string, opts ...Option) (*Master, error) {
 	m := &Master{}
+	// 初始化 Master 的配置
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
 	m.options = options
 
+	// 生成 Master 的 ID
 	ipv4, err := getLocalIP()
 	if err != nil {
 		return nil, err
 	}
 	m.ID = genMasterID(id, ipv4, m.GRPCAddress)
 	m.logger.Sugar().Debugln("master_id:", m.ID)
+
+	// 初始化资源和 Worker 节点
+	m.resources = make(map[string]*ResourceSpec)
+
+	// 创建一个全局唯一 ID 生成器
+	node, err := snowflake.NewNode(1)
+	if err != nil {
+		return nil, err
+	}
+	m.IDGen = node
+
+	// 创建 etcd clientv3 客户端
+	endpoints := []string{m.registryURL}
+	cli, err := clientv3.New(clientv3.Config{Endpoints: endpoints})
+	if err != nil {
+		return nil, err
+	}
+	m.etcdCli = cli
+
+	// 更新 Worker 节点信息
+	m.updateWorkNodes()
+
+	// 将 Seeds 中的任务写入 etcd
+	m.AddSeed()
+
+	// 启动 Master 的选主逻辑
 	go m.Campaign()
 
-	return &Master{}, nil
+	go m.HandleMsg()
 
+	return &Master{}, nil
+}
+
+func (m *Master) HandleMsg() {
+	msgCh := make(chan *Message)
+
+	select {
+	case msg := <-msgCh:
+		switch msg.Cmd {
+		case MSGADD:
+			m.AddResource(msg.Specs)
+		}
+	}
+}
+
+// AddSeed 将 Seeds 中的任务写入 etcd
+func (m *Master) AddSeed() {
+	rs := make([]*ResourceSpec, 0, len(m.Seeds))
+	for _, seed := range m.Seeds {
+		resp, err := m.etcdCli.Get(context.Background(), getResourcePath(seed.Name), clientv3.WithSerializable())
+		if err != nil {
+			m.logger.Error("get resource failed", zap.Error(err))
+			continue
+		}
+		if len(resp.Kvs) == 0 {
+			r := &ResourceSpec{
+				Name: seed.Name,
+			}
+			rs = append(rs, r)
+		}
+	}
+	// 没有写入 etcd 的任务，将其存储到 etcd
+	m.AddResource(rs)
+}
+
+// AddResource 将资源写入 etcd
+func (m *Master) AddResource(rs []*ResourceSpec) {
+	for _, r := range rs {
+		// 资源各个字段填充
+		r.ID = m.IDGen.Generate().String()
+		nodeAssign, err := m.Assign(r)
+		if err != nil {
+			m.logger.Error("assign worker failed", zap.Error(err))
+			continue
+		}
+		r.AssignedNode = nodeAssign.Id + "|" + nodeAssign.Address
+		r.CreationTime = time.Now().UnixNano()
+		m.logger.Debug("add resource", zap.Any("specs", r))
+
+		// 资源写入 etcd（存储到 etcd 中的 Value 需要是 string 类型，用 json 的序列化）
+		_, err = m.etcdCli.Put(context.Background(), getResourcePath(r.Name), encode(r))
+		if err != nil {
+			m.logger.Error("put etcd failed", zap.Error(err))
+			continue
+		}
+		// 记录资源
+		m.resources[r.Name] = r
+	}
+}
+
+// Assign 为资源分配 Worker 节点, 计算当前的资源应该被分配到哪个节点
+// 先用随机的方式选择一个节点
+func (m *Master) Assign(r *ResourceSpec) (*registry.Node, error) {
+	for _, n := range m.workNodes {
+		return n, nil
+	}
+	return nil, errors.New("no worker nodes")
 }
 
 func (m *Master) IsLeader() bool {
@@ -50,14 +176,7 @@ func (m *Master) IsLeader() bool {
 
 // Campaign 分布式选主的核心逻辑
 func (m *Master) Campaign() {
-	// 创建一个 etcd clientv3 的客户端
-	endpoints := []string{m.registryURL}
-	cli, err := clientv3.New(clientv3.Config{Endpoints: endpoints})
-	if err != nil {
-		panic(err)
-	}
-
-	session, err := concurrency.NewSession(cli, concurrency.WithTTL(5))
+	session, err := concurrency.NewSession(m.etcdCli, concurrency.WithTTL(5))
 	if err != nil {
 		m.logger.Error("NewSession", zap.Error(err))
 	}
@@ -90,10 +209,12 @@ func (m *Master) Campaign() {
 				return
 			} else {
 				// 当选 Leader
-				m.logger.Info("master change to leader")
+				m.logger.Info("master start change to leader")
 				m.leaderID = m.ID
 				if !m.IsLeader() {
-					m.BecomeLeader()
+					if err := m.BecomeLeader(); err != nil {
+						m.logger.Error("BecomeLeader failed", zap.Error(err))
+					}
 				}
 			}
 		// leaderChange 负责监听当前集群中 Leader 是否发生了变化
@@ -104,7 +225,7 @@ func (m *Master) Campaign() {
 		// workerNodeChange 负责监听当前集群中 Worker 节点的变化
 		case resp := <-workerNodeChange:
 			m.logger.Info("watch worker change", zap.Any("worker:", resp))
-			m.updateNodes()
+			m.updateWorkNodes()
 		case <-time.After(20 * time.Second):
 			resp, err := election.Leader(context.Background())
 			if err != nil {
@@ -154,12 +275,38 @@ func (m *Master) WatchWorker() chan *registry.Result {
 	return ch
 }
 
-func (m *Master) BecomeLeader() {
+func (m *Master) BecomeLeader() error {
+	// 当 Master 成为新的 Leader 后，要全量地获取一次 etcd 中当前最新的资源信息
+	if err := m.loadResource(); err != nil {
+		return fmt.Errorf("loadResource failed:%w", err)
+	}
+
 	atomic.StoreInt32(&m.ready, 1)
+	return nil
 }
 
-// updateNodes 更新当前集群中的 Worker 节点信息
-func (m *Master) updateNodes() {
+// loadResource 全量地获取一次 etcd 中当前最新的资源信息, 并把它保存到内存中
+func (m *Master) loadResource() error {
+	resp, err := m.etcdCli.Get(context.Background(), RESOURCEPATH, clientv3.WithSerializable())
+	if err != nil {
+		return fmt.Errorf("etcd get failed")
+	}
+
+	resources := make(map[string]*ResourceSpec)
+	for _, kv := range resp.Kvs {
+		r, err := decode(kv.Value)
+		if err == nil && r != nil {
+			resources[r.Name] = r
+		}
+	}
+
+	m.logger.Info("leader init load resource", zap.Int("lenth", len(m.resources)))
+	m.resources = resources
+	return nil
+}
+
+// updateWorkNodes 更新当前集群中的 Worker 节点信息
+func (m *Master) updateWorkNodes() {
 	services, err := m.registry.GetService(worker.ServiceName)
 	if err != nil {
 		m.logger.Error("get service ", zap.Error(err))
@@ -223,4 +370,19 @@ func getLocalIP() (string, error) {
 	}
 
 	return "", errors.New("no local ip")
+}
+
+func getResourcePath(name string) string {
+	return fmt.Sprintf("%s/%s", RESOURCEPATH, name)
+}
+
+func encode(s *ResourceSpec) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+func decode(ds []byte) (*ResourceSpec, error) {
+	var s *ResourceSpec
+	err := json.Unmarshal(ds, &s)
+	return s, err
 }
