@@ -13,6 +13,7 @@ import (
 	"golang.org/x/net/context"
 	"net"
 	"reflect"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -177,11 +178,23 @@ func (m *Master) AddResource(rs []*ResourceSpec) {
 }
 
 // Assign 为资源分配 Worker 节点, 计算当前的资源应该被分配到哪个节点
-// 先用随机的方式选择一个节点
+// 最小负载法
 func (m *Master) Assign(r *ResourceSpec) (*WorkerNodeSpec, error) {
-	for _, n := range m.workNodes {
-		return n, nil
+	// 遍历所有节点，找到合适的 Worker 节点
+	candidates := make([]*WorkerNodeSpec, 0, len(m.workNodes))
+	for _, node := range m.workNodes {
+		candidates = append(candidates, node)
 	}
+
+	// 根据负载对 Worker 队列进行排序
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].Payload < candidates[j].Payload
+	})
+	// 选择负载最小的节点作为目标 Worker 节点
+	if len(candidates) > 0 {
+		return candidates[0], nil
+	}
+
 	return nil, errors.New("no worker nodes")
 }
 
