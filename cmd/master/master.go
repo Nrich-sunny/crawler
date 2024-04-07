@@ -5,7 +5,7 @@ import (
 	"github.com/Nrich-sunny/crawler/collect"
 	"github.com/Nrich-sunny/crawler/log"
 	"github.com/Nrich-sunny/crawler/master"
-	pb "github.com/Nrich-sunny/crawler/proto/greeter"
+	"github.com/Nrich-sunny/crawler/proto/crawler"
 	"github.com/go-micro/plugins/v4/config/encoder/toml"
 	etcdReg "github.com/go-micro/plugins/v4/registry/etcd"
 	gs "github.com/go-micro/plugins/v4/server/grpc"
@@ -89,7 +89,7 @@ func Run() {
 
 	// start master
 	reg := etcdReg.NewRegistry(registry.Addrs(sConfig.RegistryAddress))
-	master.New(
+	m, err := master.New(
 		masterId,
 		master.WithLogger(logger.Named("master")),
 		master.WithGRPCAddress(GRPCListenAddress),
@@ -97,16 +97,19 @@ func Run() {
 		master.WithRegistry(reg),
 		master.WithSeeds(seeds),
 	)
+	if err != nil {
+		logger.Error("init master failed", zap.Error(err))
+	}
 
 	// start http proxy to GRPC
 	go RunHTTPServer(sConfig)
 
 	// start grpc server
-	RunGRPCServer(logger, sConfig, reg)
+	RunGRPCServer(m, logger, sConfig, reg)
 
 }
 
-func RunGRPCServer(logger *zap.Logger, cfg ServerConfig, reg registry.Registry) {
+func RunGRPCServer(masterService *master.Master, logger *zap.Logger, cfg ServerConfig, reg registry.Registry) {
 	service := micro.NewService(
 		micro.Server(gs.NewServer(
 			server.Id(masterId),
@@ -127,20 +130,13 @@ func RunGRPCServer(logger *zap.Logger, cfg ServerConfig, reg registry.Registry) 
 
 	service.Init()
 
-	if err := pb.RegisterGreeterHandler(service.Server(), new(Greeter)); err != nil {
+	if err := crawler.RegisterCrawlerMasterHandler(service.Server(), masterService); err != nil {
 		logger.Fatal("register handler failed", zap.Error(err))
 	}
 
 	if err := service.Run(); err != nil {
 		logger.Fatal("grpc server stop", zap.Error(err))
 	}
-}
-
-type Greeter struct{}
-
-func (g *Greeter) Hello(ctx context.Context, req *pb.Request, rsp *pb.Response) error {
-	rsp.Greeting = "Hello " + req.Name
-	return nil
 }
 
 func RunHTTPServer(cfg ServerConfig) {
@@ -154,9 +150,10 @@ func RunHTTPServer(cfg ServerConfig) {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	}
 
-	if err := pb.RegisterGreeterGwFromEndpoint(ctx, mux, GRPCListenAddress, opts); err != nil {
+	if err := crawler.RegisterCrawlerMasterGwFromEndpoint(ctx, mux, GRPCListenAddress, opts); err != nil {
 		zap.L().Fatal("Register backend grpc server endpoint failed", zap.Error(err))
 	}
+
 	zap.S().Debugf("start http server listening on %v proxy to grpc server;%v", HTTPListenAddress, GRPCListenAddress)
 	if err := http.ListenAndServe(HTTPListenAddress, mux); err != nil {
 		zap.L().Fatal("http listenAndServe failed", zap.Error(err))

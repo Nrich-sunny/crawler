@@ -1,0 +1,31 @@
+syntax = "proto3";
+option go_package = "proto/crawler";
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+service CrawlerMaster {
+  rpc AddResource(ResourceSpec) returns (WorkerNodeSpec) {
+    option (google.api.http) = {
+      post: "/crawler/resources"
+      body: "*"
+    };
+  }
+  rpc DeleteResource(ResourceSpec) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/crawler/resources"
+      body: "*"
+    };
+  }
+}
+
+message ResourceSpec {
+  string id = 1;
+  string name = 2;
+  string assigned_node = 3;
+  int64 creation_time = 4;
+}
+
+message WorkerNodeSpec {
+  string id = 1;
+  string Address = 2;
+}

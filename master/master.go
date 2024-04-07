@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Nrich-sunny/crawler/cmd/worker"
+	proto "github.com/Nrich-sunny/crawler/proto/crawler"
 	"github.com/bwmarrin/snowflake"
+	"github.com/golang/protobuf/ptypes/empty"
 	"go-micro.dev/v4/registry"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
@@ -109,7 +111,7 @@ func New(id string, opts ...Option) (*Master, error) {
 
 	go m.HandleMsg()
 
-	return &Master{}, nil
+	return m, nil
 }
 
 func (m *Master) HandleMsg() {
@@ -119,7 +121,7 @@ func (m *Master) HandleMsg() {
 	case msg := <-msgCh:
 		switch msg.Cmd {
 		case MSGADD:
-			m.AddResource(msg.Specs)
+			m.AddResources(msg.Specs)
 		}
 	}
 }
@@ -140,41 +142,86 @@ func (m *Master) AddSeed() {
 			rs = append(rs, r)
 		}
 	}
-	// 没有写入 etcd 的任务，将其存储到 etcd
-	m.AddResource(rs)
+	// 将没有写入 etcd 的任务存储到 etcd
+	m.AddResources(rs)
+}
+
+func (m *Master) AddResources(rs []*ResourceSpec) {
+	for _, r := range rs {
+		m.addResource(r)
+	}
 }
 
 // AddResource 将资源写入 etcd，同时为其分配 Worker 节点
-func (m *Master) AddResource(rs []*ResourceSpec) {
-	for _, r := range rs {
-		// 资源各个字段填充
-		r.ID = m.IDGen.Generate().String()
-		// 为资源分配 Worker 节点
-		nodeAssigned, err := m.Assign(r)
-		if err != nil {
-			m.logger.Error("assign worker failed", zap.Error(err))
-			continue
-		}
-		if nodeAssigned.Node == nil {
-			m.logger.Error("no node to assgin")
-			continue
-		}
-		r.AssignedNode = nodeAssigned.Node.Id + "|" + nodeAssigned.Node.Address
-
-		r.CreationTime = time.Now().UnixNano()
-		m.logger.Debug("add resource", zap.Any("specs", r))
-
-		// 资源写入 etcd（存储到 etcd 中的 Value 需要是 string 类型，用 json 的序列化）
-		_, err = m.etcdCli.Put(context.Background(), getResourcePath(r.Name), encode(r))
-		if err != nil {
-			m.logger.Error("put etcd failed", zap.Error(err))
-			continue
-		}
-		// 记录资源
-		m.resources[r.Name] = r
-		// 更新 Worker 节点的负载
-		nodeAssigned.Payload++
+func (m *Master) addResource(r *ResourceSpec) (*WorkerNodeSpec, error) {
+	// 资源各个字段填充
+	r.ID = m.IDGen.Generate().String()
+	// 为资源分配 Worker 节点
+	nodeAssigned, err := m.Assign(r)
+	if err != nil {
+		m.logger.Error("assign worker failed", zap.Error(err))
+		return nil, err
 	}
+	if nodeAssigned.Node == nil {
+		m.logger.Error("no node to assign")
+		return nil, errors.New("no node to assign")
+	}
+	r.AssignedNode = nodeAssigned.Node.Id + "|" + nodeAssigned.Node.Address
+
+	r.CreationTime = time.Now().UnixNano()
+	m.logger.Debug("add resource", zap.Any("specs", r))
+
+	// 资源写入 etcd（存储到 etcd 中的 Value 需要是 string 类型，用 json 的序列化）
+	_, err = m.etcdCli.Put(context.Background(), getResourcePath(r.Name), encode(r))
+	if err != nil {
+		m.logger.Error("put etcd failed", zap.Error(err))
+		return nil, err
+	}
+	// 记录资源
+	m.resources[r.Name] = r
+	// 更新 Worker 节点的负载
+	nodeAssigned.Payload++
+	return nodeAssigned, nil
+}
+
+// AddResource 允许客户端添加资源
+func (m *Master) AddResource(ctx context.Context, req *proto.ResourceSpec, resp *proto.WorkerNodeSpec) error {
+	r := &ResourceSpec{
+		Name: req.Name,
+	}
+	nodeSpec, err := m.addResource(r)
+	if err != nil {
+		return err
+	}
+	if nodeSpec != nil {
+		resp.Id = nodeSpec.Node.Id
+		resp.Address = nodeSpec.Node.Address
+	}
+	return nil
+}
+
+// DeleteResource 允许客户端删除资源
+func (m *Master) DeleteResource(ctx context.Context, req *proto.ResourceSpec, empty *empty.Empty) error {
+	r, ok := m.resources[req.Name]
+	if ok {
+		// 删除 etcd 中的资源
+		if _, err := m.etcdCli.Delete(ctx, getResourcePath(r.Name)); err != nil {
+			return err
+		}
+	}
+
+	// 更新 Worker 节点的负载
+	if r.AssignedNode != "" {
+		nodeId, err := getNodeID(r.AssignedNode)
+		if err != nil {
+			return err
+		}
+
+		if nodeSpec, ok := m.workNodes[nodeId]; ok {
+			nodeSpec.Payload -= 1
+		}
+	}
+	return nil
 }
 
 // Assign 为资源分配 Worker 节点, 计算当前的资源应该被分配到哪个节点
@@ -219,7 +266,7 @@ func (m *Master) reAssign() {
 		}
 	}
 	// 重新分配资源
-	m.AddResource(rs)
+	m.AddResources(rs)
 }
 
 func (m *Master) IsLeader() bool {
@@ -378,8 +425,9 @@ func (m *Master) loadResource() error {
 			if err != nil {
 				m.logger.Error("getNodeID failed", zap.Error(err))
 			}
-			node := m.workNodes[id]
-			node.Payload++
+			if node, ok := m.workNodes[id]; ok {
+				node.Payload++
+			}
 		}
 	}
 	return nil

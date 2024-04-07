@@ -7,6 +7,7 @@ require (
 	github.com/go-micro/plugins/v4/config/encoder/toml v1.2.0
 	github.com/go-micro/plugins/v4/registry/etcd v1.2.0
 	github.com/go-micro/plugins/v4/server/grpc v1.2.0
+	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0
 	github.com/robertkrimen/otto v0.3.0
 	github.com/spf13/cobra v1.1.3
@@ -17,6 +18,7 @@ require (
 	golang.org/x/net v0.20.0
 	golang.org/x/text v0.14.0
 	golang.org/x/time v0.5.0
+	google.golang.org/genproto/googleapis/api v0.0.0-20240123012728-ef4313101c80 // indirect
 	google.golang.org/grpc v1.62.1
 	google.golang.org/protobuf v1.33.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
